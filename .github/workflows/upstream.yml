@@ -1,7 +1,7 @@
 #
 # This is free software, lisence use MIT.
 # 
-# <https://github.com/kiddin9/op-packages>
+# <https://github.com/tengfeiy2020/op-packages>
 #
 name: Merge-upstream
 on:
@@ -11,20 +11,21 @@ on:
       - '.gitignore'
       - '.github/diy/**'
   schedule:
-    - cron: 0 */12 * * *
+    - cron: 0 */12 * * *  # 每12小时运行一次，想改每天一次就改成 0 0 * * *
   workflow_dispatch:
     inputs:
       ssh:
         description: 'ssh'
         required: false
-        default: 'true'
+        default: 'false'  # 关闭默认SSH调试，更安全
   watch:
     types: started
   repository_dispatch:
 
 jobs:
   merge:
-    if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id || github.event.sender.id == '119362912'
+    # 已替换为你的GitHub ID：55963334
+    if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id || github.event.sender.id == '55963334'
     runs-on: ubuntu-latest
 
     steps:
@@ -34,8 +35,9 @@ jobs:
         fetch-depth: 0
 
     - uses: de-vri-es/setup-git-credentials@v2
+      # 替换成你的GitHub用户名：tengfeiy2020
       with:
-        credentials: https://tengfeiy2020:${{ secrets.TOKEN_KIDDIN9 }}@github.com/
+        credentials: https://tengfeiy2020:${{ secrets.TOKEN }}@github.com/
     
     - name: Set git identity
       run : |
@@ -389,7 +391,7 @@ jobs:
         git_sparse_clone openwrt-25.12 "https://github.com/immortalwrt/luci" applications collections/luci-nginx protocols/luci-proto-minieap protocols/luci-proto-quectel themes/luci-theme-argon
         rm -rf applications/luci-app-frp*;mv -n luciapp/!(luci-app-filetransfer|luci-app-ksmbd) applications/; rm -rf luciapp
 
-        for ipk in $(ls -d applications/!(luci-app-rclone|luci-app-smartdns|luci-app-3ginfo-lite|luci-app-aria2|luci-app-ddns|luci-app-ksmbd|luci-app-samba4|luci-app-watchcat|luci-app-upnp|luci-app-transmission)/); do
+        for ipk in $(ls -d applications/!(luci-app-noddos|luci-app-filebrowser-go|luci-app-openvpn-server|luci-app-chrony|luci-app-kodexplorer|luci-app-cshark|luci-app-dnscrypt-proxy|luci-app-https-dns-proxy|luci-app-ssr-mudb-server|luci-app-ledtrig-*|luci-app-antiblock)/); do
         	if [[ $(ls $ipk/po | wc -l) -gt 4 ]]; then
             rm -rf $ipk
         	fi
@@ -421,7 +423,7 @@ jobs:
 
     - name: Apply patches
       run: |
-        find ".github/diy/patches" -type f -name '*.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "patch -d './' -p1 -E -f -F 1 --no-backup-if-mismatch -i '%'" || (curl -k --data chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" --data "text=❌ 软件包更新失败 😂 https://github.com/kiddin9/openwrt-packages/actions" "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage";exit 1)
+        find ".github/diy/patches" -type f -name '*.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "patch -d './' -p1 -E -f -F 1 --no-backup-if-mismatch -i '%'" || (echo "补丁应用失败";exit 1)
 
     - name: Modify
       run: |
@@ -436,7 +438,7 @@ jobs:
         (
         function latest() {
           (curl -gs -H 'Content-Type: application/json' \
-             -H "Authorization: Bearer ${{ secrets.TOKEN_KIDDIN9 }}" \
+             -H "Authorization: Bearer ${{ secrets.TOKEN }}" \
              -X POST -d '{ "query": "query {repository(owner: \"'"$1"'\", name: \"'"$2"'\"){latestRelease{tagName tagCommit{oid}}refs(refPrefix:\"refs/tags/\",last:1,orderBy:{field:TAG_COMMIT_DATE,direction:ASC}){edges{node{name target{oid}}}}defaultBranchRef{target{...on Commit {oid}}}}}"}' https://api.github.com/graphql)
         }
         for pkg in $(ls !(luci-*|nikki|openwrt-einat-ebpf|glorytun|shadowsocks-libev|mosdns|spotifyd|miniupnpd|qBittorrent-Enhanced-Edition|openwrt-Toolkit|libdouble-conversion|wxbase|3proxy|ucode|mergerfs|openwrt-nezhav1|homebox|sub-web|tcptraceroute|frp|openwrt-caddy|mentohust|brlaser|rapidjson|smartdns|hysteria|gecoosac|hickory-dns|libcryptopp|naiveproxy|rustdesk-server|shadowsocksr-libev|tuic-server|joker|ps3netsrv|natter|netmaker|openwrt-ympd|subconverter|sms-tool)/Makefile); do
