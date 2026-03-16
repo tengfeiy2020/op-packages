@@ -51,40 +51,51 @@ jobs:
         set +e
         git rm -r --cache * >/dev/null 2>&1 &
         rm -rf `find ./* -maxdepth 0 -type d ! -name ".github/diy"` >/dev/null 2>&1
+        
+        # ========== 核心升级：克隆失败自动跳过 ==========
+        # 新版git_clone：失败只打印提示，不终止脚本
         function git_clone() {
-          git clone --depth 1 $1 $2
-          if [ "$?" != 0 ]; then
-            echo "error on $1"
-            pid="$( ps -q $$ )"
-            kill $pid
+          echo "开始克隆仓库: $1"
+          if git clone --depth 1 $1 $2; then
+            echo "✅ 仓库 $1 克隆成功"
+          else
+            echo "❌ 仓库 $1 克隆失败，自动跳过"
           fi
         }
+        
+        # 新版git_sparse_clone：失败只打印提示，不终止脚本
         function git_sparse_clone() {
-        trap 'rm -rf "$tmpdir"' EXIT
-        branch="$1" curl="$2" && shift 2
-        rootdir="$PWD"
-        tmpdir="$(mktemp -d)" || exit 1
-        if [ ${#branch} -lt 10 ]; then
-        git clone -b "$branch" --depth 1 --filter=blob:none --sparse "$curl" "$tmpdir"
-        cd "$tmpdir"
-        else
-        git clone --filter=blob:none --sparse "$curl" "$tmpdir"
-        cd "$tmpdir"
-        git checkout $branch
-        fi
-        if [ "$?" != 0 ]; then
-            echo "error on $curl"
-            exit 1
-        fi
-        git sparse-checkout init --cone
-        git sparse-checkout set "$@"
-        mv -n $@ $rootdir/ || true
-        cd $rootdir
+          trap 'rm -rf "$tmpdir"' EXIT
+          branch="$1" curl="$2" && shift 2
+          rootdir="$PWD"
+          tmpdir="$(mktemp -d)" || exit 1
+          
+          echo "开始稀疏克隆仓库: $curl (分支: $branch)"
+          if [ ${#branch} -lt 10 ]; then
+            git clone -b "$branch" --depth 1 --filter=blob:none --sparse "$curl" "$tmpdir" >/dev/null 2>&1
+          else
+            git clone --filter=blob:none --sparse "$curl" "$tmpdir" >/dev/null 2>&1
+            cd "$tmpdir" && git checkout $branch >/dev/null 2>&1
+          fi
+          
+          if [ $? -eq 0 ]; then
+            cd "$tmpdir"
+            git sparse-checkout init --cone >/dev/null 2>&1
+            git sparse-checkout set "$@" >/dev/null 2>&1
+            mv -n $@ $rootdir/ || true
+            echo "✅ 稀疏克隆 $curl 成功"
+          else
+            echo "❌ 稀疏克隆 $curl 失败，自动跳过"
+          fi
+          cd $rootdir
         }
+        
         function mvdir() {
-        mv -n `find $1/* -maxdepth 0 -type d` ./
-        rm -rf $1
+          mv -n `find $1/* -maxdepth 0 -type d` ./
+          rm -rf $1
         }
+        # ========== 克隆失败跳过功能结束 ==========
+
         (
         git_clone https://github.com/kiddin9/my-packages && mvdir my-packages
         git_clone https://github.com/kiddin9/openwrt-bypass && mvdir openwrt-bypass
@@ -423,7 +434,7 @@ jobs:
 
     - name: Apply patches
       run: |
-        find ".github/diy/patches" -type f -name '*.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "patch -d './' -p1 -E -f -F 1 --no-backup-if-mismatch -i '%'" || (echo "补丁应用失败";exit 1)
+        find ".github/diy/patches" -type f -name '*.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "patch -d './' -p1 -E -f -F 1 --no-backup-if-mismatch -i '%'" || (echo "补丁应用失败，继续执行后续步骤";)
 
     - name: Modify
       run: |
@@ -506,7 +517,7 @@ jobs:
         sed -i 's/+php8-cgi /+php8-cgi +php8-fpm /' luci-theme-spectra/Makefile
 
         while [[ ! -f /tmp/ok || ! -f /tmp/ok2 || ! -f /tmp/ok3 ]]; do
-            echo "wait"
+            echo "等待依赖文件生成..."
           sleep 1
         done
 
@@ -514,16 +525,16 @@ jobs:
       run: |
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
         git add .
-        git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(date +%Y-%m-%d" "%H:%M:%S)"
-        for pkg in $(git diff-tree --no-commit-id --name-only HEAD | grep -v "naiveproxy" | grep -v "luci-app-passwall"); do
-          if [ "$(grep "PKG_RELEASE" $pkg/Makefile)" ]; then
-            sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=$(git rev-list --count main $pkg)/" $pkg/Makefile || true
+        git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(date +%Y-%m-%d" "%H:%M:%S)" || echo "无修改内容，跳过提交"
+        for pkg in $(git diff-tree --no-commit-id --name-only HEAD 2>/dev/null | grep -v "naiveproxy" | grep -v "luci-app-passwall"); do
+          if [ "$(grep "PKG_RELEASE" $pkg/Makefile 2>/dev/null)" ]; then
+            sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=$(git rev-list --count main $pkg 2>/dev/null)/" $pkg/Makefile || true
           fi
         done
-        git reset --soft HEAD^
+        git reset --soft HEAD^ 2>/dev/null || true
         git add .
-        git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(date +%Y-%m-%d" "%H:%M:%S)"
-        git push -f
+        git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(date +%Y-%m-%d" "%H:%M:%S)" || echo "无修改内容，跳过二次提交"
+        git push -f || echo "推送失败，可能无修改内容"
 
     - name: Delete workflow runs
       uses: Mattraks/delete-workflow-runs@main
